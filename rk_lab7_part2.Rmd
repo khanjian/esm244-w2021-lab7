@@ -1,0 +1,166 @@
+---
+title: 'Lab 7 part 2: The Hobbit'
+author: "Roupen Khanjian"
+date: "2/17/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(tidytext)
+library(textdata)
+library(pdftools)
+library(ggwordcloud)
+
+```
+
+## read in hobbit
+
+```{r, cache = TRUE}
+
+hobbit_text <- pdf_text("the-hobbit.pdf")
+
+hobbit_text_p34 <- hobbit_text[34] # everything on the 34th page
+# hobbit_text_p34
+
+```
+
+Use `str_split` to split each line
+
+```{r}
+hobbit_tidy <- data.frame(hobbit_text) %>%   # each row in df is a different page
+  mutate(text_full = str_split(hobbit_text, pattern = "\\n")) %>% 
+  unnest(text_full) %>% 
+  mutate(text_full = str_trim(text_full))
+  
+```
+
+```{r}
+
+hobbit_df <- hobbit_tidy %>% 
+  slice(-(1:125)) %>%  # remove the things before the actual first line of the book
+  mutate(chapter = case_when(
+    str_detect(text_full, pattern = "Chapter") ~ text_full,
+    TRUE ~ NA_character_ # since NAs still have a class, so  make the NA the same class of your column class
+  )) %>% 
+  fill(chapter) %>%  # woahhhh! look for non-NA value and fill it with the noniNA value before it?
+  separate(col = chapter, into = c("ch", "no"), sep = " ") %>% 
+  mutate(chapter = as.numeric(as.roman(no)))
+
+
+```
+
+```{r}
+
+hobbit_tokens <- hobbit_df %>% 
+  unnest_tokens(word, text_full) %>% 
+  dplyr::select(-hobbit_text)
+
+hobbit_wordcount <- hobbit_tokens %>% 
+  count(chapter, word)
+
+hobbit_wordcount
+
+```
+
+### Remove all stop_words that exist in hobbit_tokens
+
+```{r}
+hobbit_nonstop_words <- hobbit_tokens %>% 
+  anti_join(stop_words) 
+
+nonstop_counts <- hobbit_nonstop_words %>% 
+  count(chapter, word)
+
+```
+
+
+```{r}
+
+top_5_words <- nonstop_counts %>% 
+  group_by(chapter) %>% 
+  arrange(-n) %>% # arrange in descending order
+  slice(1:5) # top 5 in each chapter
+
+```
+
+
+```{r}
+ggplot(data = top_5_words, aes(x = word, y = n)) +
+  geom_col(fill = "blue") +
+  facet_wrap(~chapter, scales = "free") +
+  coord_flip()
+```
+
+```{r}
+# top 100 words only in chapter 1
+ch1_top100 <- nonstop_counts %>% 
+  filter(chapter == 1) %>% 
+  arrange(-n) %>% 
+  slice(1:100)
+
+ch1_cloud <- ggplot(data = ch1_top100, aes(label = word)) +
+  geom_text_wordcloud(aes(color = n , size = n)) + # cool!
+  scale_color_viridis_c() +
+  scale_size_area(max_size = 6)
+
+ch1_cloud
+
+```
+
+## sentiment analysis
+
+```{r}
+
+afinn_pos <- get_sentiments("afinn") %>% 
+  filter(value > 2) # afinn score of 3,4, or 5
+
+```
+
+### with `afinn`
+
+```{r}
+
+hobbit_afinn <- hobbit_nonstop_words %>% 
+  inner_join(get_sentiments("afinn"))
+
+afinn_counts <- hobbit_afinn %>% 
+  count(chapter, value)
+
+afinn_means <- hobbit_afinn %>% 
+  group_by(chapter) %>% 
+  summarise(mean_afinn = mean(value))
+
+ggplot(data = afinn_means, 
+       aes(x = chapter, y = mean_afinn)) +
+  geom_col() +
+  coord_flip()
+
+```
+
+### use `nrc` lexicon
+
+```{r}
+
+hobbit_nrc <- hobbit_nonstop_words %>% 
+  inner_join(get_sentiments("nrc"))
+
+hobbit_nrc_counts <- hobbit_nrc %>% 
+  count(chapter, sentiment)
+
+ggplot(data = hobbit_nrc_counts,
+       aes(x = sentiment, y = n)) +
+  geom_col() +
+  facet_wrap(~chapter) +
+  coord_flip()
+
+
+```
+
+
+
+
+
+
+
